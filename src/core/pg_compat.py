@@ -191,12 +191,19 @@ class Row:
 # ── connection shim ───────────────────────────────────────────────────────────
 
 class _PgConnection:
-    """Mimics aiosqlite Connection for the patterns used in database.py."""
+    """
+    Mimics the aiosqlite Connection API used by database.py.
+
+    Uses autocommit-style execution: each statement runs immediately with no
+    wrapping transaction, matching SQLite's default behaviour.  database.py
+    calls conn.commit() after writes; that is a no-op here because asyncpg
+    executes every statement atomically by default when not inside an explicit
+    transaction block.
+    """
 
     def __init__(self, conn):
-        self._conn = conn          # raw asyncpg connection
-        self._tr = None
-        self.row_factory = None    # ignored — asyncpg always returns Records
+        self._conn = conn
+        self.row_factory = None  # ignored — asyncpg always returns Records
 
     async def execute(self, sql: str, params=()) -> _PgCursor:
         sql_pg = _translate_sql(sql)
@@ -205,26 +212,25 @@ class _PgConnection:
         sql_upper = sql_pg.lstrip().upper()
 
         if sql_upper.startswith("INSERT"):
-            # Detect RETURNING id; if not present, add it for AUTOINCREMENT tables
-            has_returning = "RETURNING" in sql_upper
-            if not has_returning:
-                # Try to get lastrowid via RETURNING id
-                sql_with_ret = sql_pg.rstrip().rstrip(";") + " RETURNING id"
-                try:
-                    if params:
-                        row = await self._conn.fetchrow(sql_with_ret, *params)
-                    else:
-                        row = await self._conn.fetchrow(sql_with_ret)
-                    lastrowid = row["id"] if row else None
-                    return _PgCursor([row] if row else [], lastrowid=lastrowid)
-                except Exception:
-                    pass
-            # Plain execute
-            if params:
-                await self._conn.execute(sql_pg, *params)
-            else:
-                await self._conn.execute(sql_pg)
-            return _PgCursor([], lastrowid=None)
+            # Always append RETURNING id so we can populate lastrowid.
+            # Tables whose PK is not named "id" will raise; we catch only
+            # UndefinedColumnError and fall back to a plain execute.
+            sql_ret = sql_pg.rstrip().rstrip(";") + " RETURNING id"
+            try:
+                import asyncpg
+                if params:
+                    row = await self._conn.fetchrow(sql_ret, *params)
+                else:
+                    row = await self._conn.fetchrow(sql_ret)
+                lastrowid = row["id"] if row else None
+                return _PgCursor([row] if row else [], lastrowid=lastrowid)
+            except asyncpg.UndefinedColumnError:
+                # Table has no column named "id" — plain execute, no lastrowid
+                if params:
+                    await self._conn.execute(sql_pg, *params)
+                else:
+                    await self._conn.execute(sql_pg)
+                return _PgCursor([], lastrowid=None)
 
         elif sql_upper.startswith(("SELECT", "WITH")):
             if params:
@@ -242,24 +248,19 @@ class _PgConnection:
             return _PgCursor([])
 
     async def commit(self):
-        pass  # autocommit via transaction
+        pass  # no-op: each statement auto-commits in the absence of BEGIN
 
     async def __aenter__(self):
-        self._tr = self._conn.transaction()
-        await self._tr.start()
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        if exc_type is None:
-            await self._tr.commit()
-        else:
-            await self._tr.rollback()
+        pass  # connection is returned to pool by _PgConnectCtx
 
 
 # ── connect() context manager ─────────────────────────────────────────────────
 
 class _PgConnectCtx:
-    """Returned by connect(); used as `async with _PgConnectCtx() as conn:`."""
+    """Returned by connect(); used as `async with connect(...) as conn:`."""
 
     def __init__(self):
         self._raw = None
@@ -269,15 +270,11 @@ class _PgConnectCtx:
         pool = await _get_pool()
         self._raw = await pool.acquire()
         self._conn = _PgConnection(self._raw)
-        await self._conn.__aenter__()
         return self._conn
 
     async def __aexit__(self, exc_type, exc, tb):
-        try:
-            await self._conn.__aexit__(exc_type, exc, tb)
-        finally:
-            pool = await _get_pool()
-            await pool.release(self._raw)
+        pool = await _get_pool()
+        await pool.release(self._raw)
 
 
 # ── introspection helpers (replace PRAGMA / sqlite_master) ────────────────────
