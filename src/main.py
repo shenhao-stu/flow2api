@@ -156,8 +156,6 @@ async def lifespan(app: FastAPI):
     if browser_service:
         await browser_service.close()
         print("✓ Browser captcha service closed")
-    # Close database connection pool
-    await db.close()
     print("✓ File cache cleanup task stopped")
     print("✓ 429 auto-unban task stopped")
 
