@@ -132,6 +132,17 @@ def _translate_sql(sql: str) -> str:
         flags=re.IGNORECASE,
     )
 
+    # Boolean column comparisons: <bool_col> = 1 → <bool_col> = TRUE
+    # PostgreSQL rejects "boolean = integer"; SQLite accepts it.
+    _BOOL_COLS = (
+        "is_active", "enabled", "cache_enabled", "image_enabled", "video_enabled",
+        "media_proxy_enabled", "browser_proxy_enabled", "auto_enable_on_update",
+        "log_requests", "log_responses", "mask_token",
+    )
+    _bool_col_pat = r"\b(" + "|".join(_BOOL_COLS) + r")\b"
+    sql = re.sub(_bool_col_pat + r"\s*=\s*1\b", r"\1 = TRUE",  sql, flags=re.IGNORECASE)
+    sql = re.sub(_bool_col_pat + r"\s*=\s*0\b", r"\1 = FALSE", sql, flags=re.IGNORECASE)
+
     return sql
 
 
