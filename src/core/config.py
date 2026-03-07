@@ -1,7 +1,30 @@
 """Configuration management for Flow2API"""
+import os
 import tomli
 from pathlib import Path
 from typing import Dict, Any, Optional
+
+
+def _env(key: str, default: str = "") -> str:
+    return os.environ.get(key, default)
+
+
+def _env_int(key: str, default: int) -> int:
+    val = os.environ.get(key)
+    if val is not None:
+        try:
+            return int(val)
+        except ValueError:
+            pass
+    return default
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    val = os.environ.get(key)
+    if val is not None:
+        return val.lower() in ("1", "true", "yes")
+    return default
+
 
 class Config:
     """Application configuration"""
@@ -12,10 +35,78 @@ class Config:
         self._admin_password: Optional[str] = None
 
     def _load_config(self) -> Dict[str, Any]:
-        """Load configuration from setting.toml"""
+        """Load configuration from setting.toml, or fall back to env vars."""
         config_path = Path(__file__).parent.parent.parent / "config" / "setting.toml"
-        with open(config_path, "rb") as f:
-            return tomli.load(f)
+        if config_path.exists():
+            with open(config_path, "rb") as f:
+                return tomli.load(f)
+        # No TOML file — build minimal defaults from FLOW2API_* env vars.
+        # This allows the app to start on Render/HuggingFace without a
+        # mounted config volume.
+        return {
+            "global": {
+                "api_key":        _env("FLOW2API_API_KEY", "han1234"),
+                "admin_username": _env("FLOW2API_ADMIN_USERNAME", "admin"),
+                "admin_password": _env("FLOW2API_ADMIN_PASSWORD", "admin"),
+            },
+            "flow": {
+                "labs_base_url":  "https://labs.google/fx/api",
+                "api_base_url":   "https://aisandbox-pa.googleapis.com/v1",
+                "timeout":        _env_int("FLOW2API_FLOW_TIMEOUT", 120),
+                "max_retries":    3,
+                "image_request_timeout":              40,
+                "image_timeout_retry_count":          1,
+                "image_timeout_retry_delay":          0.8,
+                "image_timeout_use_media_proxy_fallback": True,
+                "image_prefer_media_proxy":           False,
+                "image_slot_wait_timeout":            480,
+                "image_launch_soft_limit":            20,
+                "image_launch_wait_timeout":          480,
+                "image_launch_stagger_ms":            0,
+                "video_slot_wait_timeout":            480,
+                "video_launch_soft_limit":            20,
+                "video_launch_wait_timeout":          480,
+                "video_launch_stagger_ms":            0,
+                "poll_interval":     3.0,
+                "max_poll_attempts": 200,
+            },
+            "server": {
+                "host": "0.0.0.0",
+                # Render and HuggingFace Spaces inject $PORT automatically
+                "port": _env_int("PORT", _env_int("FLOW2API_SERVER_PORT", 8000)),
+            },
+            "debug": {
+                "enabled":       _env_bool("FLOW2API_DEBUG", False),
+                "log_requests":  True,
+                "log_responses": True,
+                "mask_token":    True,
+            },
+            "proxy": {
+                "proxy_enabled": _env_bool("FLOW2API_PROXY_ENABLED", False),
+                "proxy_url":     _env("FLOW2API_PROXY_URL", ""),
+            },
+            "generation": {
+                "image_timeout": _env_int("FLOW2API_IMAGE_TIMEOUT", 300),
+                "video_timeout": _env_int("FLOW2API_VIDEO_TIMEOUT", 1500),
+            },
+            "admin": {
+                "error_ban_threshold": 3,
+            },
+            "cache": {
+                "enabled":  False,
+                "timeout":  7200,
+                "base_url": "",
+            },
+            "captcha": {
+                "captcha_method":              _env("FLOW2API_CAPTCHA_METHOD", "yescaptcha"),
+                "browser_recaptcha_settle_seconds": 3.0,
+                "yescaptcha_api_key":          _env("FLOW2API_YESCAPTCHA_API_KEY", ""),
+                "yescaptcha_base_url":         "https://api.yescaptcha.com",
+                "remote_browser_base_url":     _env("FLOW2API_REMOTE_BROWSER_URL", ""),
+                "remote_browser_api_key":      _env("FLOW2API_REMOTE_BROWSER_API_KEY", ""),
+                "remote_browser_timeout":      60,
+            },
+        }
 
     def reload_config(self):
         """Reload configuration from file"""

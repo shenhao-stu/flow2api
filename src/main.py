@@ -156,6 +156,9 @@ async def lifespan(app: FastAPI):
     if browser_service:
         await browser_service.close()
         print("✓ Browser captcha service closed")
+    # Close PostgreSQL connection pool if active
+    from .core.pg_compat import close_pool
+    await close_pool()
     print("✓ File cache cleanup task stopped")
     print("✓ 429 auto-unban task stopped")
 

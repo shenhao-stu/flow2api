@@ -1,13 +1,13 @@
-# render.yaml — Render Blueprint for flow2api
+# render.yaml — Render Blueprint for flow2api with Neon PostgreSQL
 # ─────────────────────────────────────────────────────────────────────────────
-# Deployment strategy:
-#   - Uses a thin wrapper Dockerfile (Dockerfile.render) that pulls the
-#     official ghcr.io/thesmallhancat/flow2api:latest image and adds a
-#     startup script that writes config/setting.toml from env vars.
-#   - A Render Disk ($1/month, 1 GB) is mounted at /app/data to persist
-#     the SQLite database (flow.db) across restarts and redeploys.
-#   - config/setting.toml is regenerated on every boot from env vars,
-#     so no persistent disk is needed for it.
+# Deployment modes:
+#
+#   Mode A (recommended, zero-cost storage):
+#     Set DATABASE_URL → app uses Neon PostgreSQL, no disk needed.
+#
+#   Mode B (SQLite with disk):
+#     Do NOT set DATABASE_URL; add a Render Disk at /app/data.
+#     Requires Render Starter plan ($7/mo) for disk support.
 # ─────────────────────────────────────────────────────────────────────────────
 services:
   - type: web
@@ -16,35 +16,40 @@ services:
     dockerfilePath: ./Dockerfile.render
     dockerContext: .
 
-    # Render's free plan does NOT support disks; use "starter" ($7/mo) or higher
-    # to enable the disk below. On free plan, remove the `disk` section and
-    # accept that the SQLite DB resets on every redeploy.
-    disk:
-      name: flow2api-data
-      mountPath: /app/data
-      sizeGB: 1
+    # ── Mode A: PostgreSQL (Neon) — no disk required ──────────────────────
+    # Remove the `disk` section below to use this mode.
+    # ── Mode B: SQLite with persistent disk ───────────────────────────────
+    # Uncomment to enable (requires Render Starter plan or higher):
+    # disk:
+    #   name: flow2api-data
+    #   mountPath: /app/data
+    #   sizeGB: 1
 
     envVars:
-      # ── Required: application credentials ─────────────────────────────────
+      # ── Database (Mode A: set this to use Neon PostgreSQL) ────────────────
+      - key: DATABASE_URL
+        sync: false   # paste your Neon URL here in the Render dashboard
+                      # Format: postgresql://user:pass@host/dbname?sslmode=require
+                      # Remove the &channel_binding=require part if present
+
+      # ── Application credentials ───────────────────────────────────────────
       - key: FLOW2API_API_KEY
-        sync: false          # set manually in Render dashboard (keeps secret)
+        sync: false
 
       - key: FLOW2API_ADMIN_USERNAME
         value: admin
 
       - key: FLOW2API_ADMIN_PASSWORD
-        sync: false          # set manually in Render dashboard
+        sync: false
 
-      # ── Required: captcha method ───────────────────────────────────────────
-      # "browser" and "personal" require a real display — they will NOT work
-      # on Render. Use one of: yescaptcha / capmonster / ezcaptcha / capsolver
-      # / remote_browser
+      # ── Captcha (REQUIRED: browser/personal won't work on Render) ─────────
+      # Choose one of: yescaptcha / capmonster / ezcaptcha / capsolver / remote_browser
       - key: FLOW2API_CAPTCHA_METHOD
         value: yescaptcha
 
       - key: FLOW2API_YESCAPTCHA_API_KEY
-        sync: false          # set manually if using yescaptcha
+        sync: false
 
-      # ── Optional: tuning ───────────────────────────────────────────────────
+      # ── Runtime ───────────────────────────────────────────────────────────
       - key: PYTHONUNBUFFERED
         value: "1"

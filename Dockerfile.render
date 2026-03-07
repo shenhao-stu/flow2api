@@ -1,17 +1,29 @@
-# Render-specific wrapper image for flow2api
+# Dockerfile.render — thin wrapper over the flow2api source image
 # ─────────────────────────────────────────────────────────────────────────────
-# Pulls the official pre-built image (no source code changes) and adds:
-#   1. An entrypoint that generates config/setting.toml from env vars at boot
-#   2. A /app/data directory pre-created so SQLite can write there
+# Pulls the official pre-built image, adds asyncpg (for PostgreSQL support),
+# patches database.py / config.py with a three-line shim, and injects an
+# entrypoint that writes config/setting.toml from env vars at startup.
 #
-# Build:  docker build -f Dockerfile.render -t flow2api-render .
+# The official ghcr.io image is NOT used as the base here because we need to
+# install asyncpg into it.  Instead we build from source (same Dockerfile
+# logic) so we control the Python environment.
+#
+# If you can push a custom image to a registry, replace FROM below with:
+#   FROM ghcr.io/thesmallhancat/flow2api:latest
+# and add:
+#   RUN pip install --no-cache-dir asyncpg>=0.29.0
 # ─────────────────────────────────────────────────────────────────────────────
-FROM ghcr.io/thesmallhancat/flow2api:latest
+FROM python:3.11-slim
 
-# Create directories that need to be writable at runtime
-RUN mkdir -p /app/config /app/data
+WORKDIR /app
 
-# Copy the Render entrypoint script
+COPY requirements.txt .
+RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p /app/data /app/config
+
 COPY docker/entrypoint.render.sh /entrypoint.render.sh
 RUN chmod +x /entrypoint.render.sh
 
