@@ -213,7 +213,7 @@ class Database:
         if count[0] == 0:
             await db.execute("""
                 INSERT INTO plugin_config (id, connection_token, auto_enable_on_update)
-                VALUES (1, '', 1)
+                VALUES (1, '', TRUE)
             """)
 
     async def check_and_migrate_db(self, config_dict: dict = None):
