@@ -199,6 +199,28 @@ class Row:
     """Sentinel — not actually used in the PG path."""
 
 
+# ── parameter normalisation ───────────────────────────────────────────────────
+
+def _normalize_params(params: tuple) -> tuple:
+    """
+    Convert any timezone-aware datetime to naive UTC before passing to asyncpg.
+
+    The schema uses TIMESTAMP (without time zone) columns.  asyncpg raises
+    "can't subtract offset-naive and offset-aware datetimes" when it tries to
+    encode a tz-aware datetime into a TIMESTAMP column.  Stripping the tzinfo
+    after converting to UTC is safe: all datetimes in this app are UTC.
+    """
+    from datetime import datetime
+    out = []
+    for v in params:
+        if isinstance(v, datetime) and v.tzinfo is not None:
+            # Convert to UTC then strip tzinfo → naive UTC datetime
+            from datetime import timezone
+            v = v.astimezone(timezone.utc).replace(tzinfo=None)
+        out.append(v)
+    return tuple(out)
+
+
 # ── connection shim ───────────────────────────────────────────────────────────
 
 class _PgConnection:
@@ -218,7 +240,7 @@ class _PgConnection:
 
     async def execute(self, sql: str, params=()) -> _PgCursor:
         sql_pg = _translate_sql(sql)
-        params = tuple(params) if params else ()
+        params = _normalize_params(tuple(params) if params else ())
 
         sql_upper = sql_pg.lstrip().upper()
 
