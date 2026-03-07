@@ -1,0 +1,20 @@
+# Render-specific wrapper image for flow2api
+# ─────────────────────────────────────────────────────────────────────────────
+# Pulls the official pre-built image (no source code changes) and adds:
+#   1. An entrypoint that generates config/setting.toml from env vars at boot
+#   2. A /app/data directory pre-created so SQLite can write there
+#
+# Build:  docker build -f Dockerfile.render -t flow2api-render .
+# ─────────────────────────────────────────────────────────────────────────────
+FROM ghcr.io/thesmallhancat/flow2api:latest
+
+# Create directories that need to be writable at runtime
+RUN mkdir -p /app/config /app/data
+
+# Copy the Render entrypoint script
+COPY docker/entrypoint.render.sh /entrypoint.render.sh
+RUN chmod +x /entrypoint.render.sh
+
+EXPOSE 8000
+
+ENTRYPOINT ["/entrypoint.render.sh"]

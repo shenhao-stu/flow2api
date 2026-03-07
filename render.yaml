@@ -1,0 +1,50 @@
+# render.yaml — Render Blueprint for flow2api
+# ─────────────────────────────────────────────────────────────────────────────
+# Deployment strategy:
+#   - Uses a thin wrapper Dockerfile (Dockerfile.render) that pulls the
+#     official ghcr.io/thesmallhancat/flow2api:latest image and adds a
+#     startup script that writes config/setting.toml from env vars.
+#   - A Render Disk ($1/month, 1 GB) is mounted at /app/data to persist
+#     the SQLite database (flow.db) across restarts and redeploys.
+#   - config/setting.toml is regenerated on every boot from env vars,
+#     so no persistent disk is needed for it.
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  - type: web
+    name: flow2api
+    runtime: docker
+    dockerfilePath: ./Dockerfile.render
+    dockerContext: .
+
+    # Render's free plan does NOT support disks; use "starter" ($7/mo) or higher
+    # to enable the disk below. On free plan, remove the `disk` section and
+    # accept that the SQLite DB resets on every redeploy.
+    disk:
+      name: flow2api-data
+      mountPath: /app/data
+      sizeGB: 1
+
+    envVars:
+      # ── Required: application credentials ─────────────────────────────────
+      - key: FLOW2API_API_KEY
+        sync: false          # set manually in Render dashboard (keeps secret)
+
+      - key: FLOW2API_ADMIN_USERNAME
+        value: admin
+
+      - key: FLOW2API_ADMIN_PASSWORD
+        sync: false          # set manually in Render dashboard
+
+      # ── Required: captcha method ───────────────────────────────────────────
+      # "browser" and "personal" require a real display — they will NOT work
+      # on Render. Use one of: yescaptcha / capmonster / ezcaptcha / capsolver
+      # / remote_browser
+      - key: FLOW2API_CAPTCHA_METHOD
+        value: yescaptcha
+
+      - key: FLOW2API_YESCAPTCHA_API_KEY
+        sync: false          # set manually if using yescaptcha
+
+      # ── Optional: tuning ───────────────────────────────────────────────────
+      - key: PYTHONUNBUFFERED
+        value: "1"
