@@ -85,12 +85,37 @@ def _translate_sql(sql: str) -> str:
         return f"${counter}"
     sql = re.sub(r"\?", _repl_placeholder, sql)
 
-    # DDL: AUTOINCREMENT → SERIAL / BIGSERIAL
+    # DDL: AUTOINCREMENT → SERIAL
     sql = re.sub(r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT", "SERIAL PRIMARY KEY", sql, flags=re.IGNORECASE)
 
-    # BOOLEAN defaults: 0 → FALSE, 1 → TRUE (only in DEFAULT clauses)
-    sql = re.sub(r"(DEFAULT\s+)0\b", r"\1FALSE", sql, flags=re.IGNORECASE)
-    sql = re.sub(r"(DEFAULT\s+)1\b", r"\1TRUE", sql, flags=re.IGNORECASE)
+    # BOOLEAN defaults: only convert 0→FALSE / 1→TRUE when the column is
+    # declared BOOLEAN.  A bare "INTEGER DEFAULT 0" must stay as-is.
+    # Pattern: BOOLEAN [NOT NULL] DEFAULT 0|1
+    sql = re.sub(
+        r"(BOOLEAN(?:\s+NOT\s+NULL)?\s+DEFAULT\s+)0\b",
+        r"\1FALSE",
+        sql,
+        flags=re.IGNORECASE,
+    )
+    sql = re.sub(
+        r"(BOOLEAN(?:\s+NOT\s+NULL)?\s+DEFAULT\s+)1\b",
+        r"\1TRUE",
+        sql,
+        flags=re.IGNORECASE,
+    )
+    # Also handle ADD COLUMN … BOOLEAN DEFAULT 0/1 inside ALTER TABLE
+    sql = re.sub(
+        r"(ADD\s+COLUMN(?:\s+IF\s+NOT\s+EXISTS)?\s+\w+\s+BOOLEAN\s+DEFAULT\s+)0\b",
+        r"\1FALSE",
+        sql,
+        flags=re.IGNORECASE,
+    )
+    sql = re.sub(
+        r"(ADD\s+COLUMN(?:\s+IF\s+NOT\s+EXISTS)?\s+\w+\s+BOOLEAN\s+DEFAULT\s+)1\b",
+        r"\1TRUE",
+        sql,
+        flags=re.IGNORECASE,
+    )
 
     # sqlite_master → information_schema.tables (but we handle introspection
     # via dedicated methods, so this is a safety net)
