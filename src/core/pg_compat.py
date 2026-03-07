@@ -135,25 +135,51 @@ def _translate_sql(sql: str) -> str:
     return sql
 
 
+# ── dual-access row wrapper ───────────────────────────────────────────────────
+
+class _Row(dict):
+    """
+    dict subclass that also supports integer index access, mimicking the
+    aiosqlite.Row / sqlite3.Row interface used in database.py:
+
+        row["column_name"]   – key access  (dict behaviour, always worked)
+        row[0]               – positional  (SQLite compat, now also works)
+    """
+    def __init__(self, record):
+        # record is an asyncpg.Record (ordered mapping)
+        super().__init__(record)
+        self._keys = list(record.keys())
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return super().__getitem__(self._keys[key])
+        return super().__getitem__(key)
+
+    def get(self, key, default=None):
+        if isinstance(key, int):
+            k = self._keys[key] if key < len(self._keys) else None
+            return super().get(k, default) if k is not None else default
+        return super().get(key, default)
+
+
 # ── cursor shim ───────────────────────────────────────────────────────────────
 
 class _PgCursor:
     """Mimics the subset of aiosqlite Cursor used by database.py."""
 
     def __init__(self, rows, lastrowid=None):
-        self._rows = rows  # list[asyncpg.Record] or None
+        self._rows = rows  # list[asyncpg.Record]
         self.lastrowid: Optional[int] = lastrowid
 
     async def fetchone(self):
         if not self._rows:
             return None
-        row = self._rows[0]
-        return dict(row)
+        return _Row(self._rows[0])
 
     async def fetchall(self):
         if not self._rows:
             return []
-        return [dict(r) for r in self._rows]
+        return [_Row(r) for r in self._rows]
 
 
 # ── Row sentinel (database.py sets conn.row_factory = aiosqlite.Row) ──────────
