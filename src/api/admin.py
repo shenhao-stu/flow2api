@@ -1735,10 +1735,15 @@ async def get_plugin_config(request: Request, token: str = Depends(verify_admin_
     # This allows the connection URL to reflect the user's actual access path
     host_header = request.headers.get("host", "")
 
+    # Detect protocol: check X-Forwarded-Proto (set by reverse proxies like nginx/Render)
+    # then fall back to the actual request scheme
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    scheme = forwarded_proto if forwarded_proto else request.url.scheme
+
     # Generate connection URL based on actual request
     if host_header:
-        # Use the actual domain/IP and port from the request
-        connection_url = f"http://{host_header}/api/plugin/update-token"
+        # Use the actual domain/IP, port, and protocol from the request
+        connection_url = f"{scheme}://{host_header}/api/plugin/update-token"
     else:
         # Fallback to config-based URL
         from ..core.config import config
@@ -1746,9 +1751,9 @@ async def get_plugin_config(request: Request, token: str = Depends(verify_admin_
         server_port = config.server_port
 
         if server_host == "0.0.0.0":
-            connection_url = f"http://127.0.0.1:{server_port}/api/plugin/update-token"
+            connection_url = f"{scheme}://127.0.0.1:{server_port}/api/plugin/update-token"
         else:
-            connection_url = f"http://{server_host}:{server_port}/api/plugin/update-token"
+            connection_url = f"{scheme}://{server_host}:{server_port}/api/plugin/update-token"
 
     return {
         "success": True,
