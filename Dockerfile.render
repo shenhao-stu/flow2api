@@ -1,0 +1,32 @@
+# Dockerfile.render — thin wrapper over the flow2api source image
+# ─────────────────────────────────────────────────────────────────────────────
+# Pulls the official pre-built image, adds asyncpg (for PostgreSQL support),
+# patches database.py / config.py with a three-line shim, and injects an
+# entrypoint that writes config/setting.toml from env vars at startup.
+#
+# The official ghcr.io image is NOT used as the base here because we need to
+# install asyncpg into it.  Instead we build from source (same Dockerfile
+# logic) so we control the Python environment.
+#
+# If you can push a custom image to a registry, replace FROM below with:
+#   FROM ghcr.io/thesmallhancat/flow2api:latest
+# and add:
+#   RUN pip install --no-cache-dir asyncpg>=0.29.0
+# ─────────────────────────────────────────────────────────────────────────────
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p /app/data /app/config
+
+COPY docker/entrypoint.render.sh /entrypoint.render.sh
+RUN chmod +x /entrypoint.render.sh
+
+EXPOSE 8000
+
+ENTRYPOINT ["/entrypoint.render.sh"]

@@ -503,7 +503,15 @@ async def change_password(
 async def get_tokens(token: str = Depends(verify_admin_token)):
     """Get all tokens with statistics"""
     token_rows = await db.get_all_tokens_with_stats()
-    to_iso = lambda value: value.isoformat() if hasattr(value, "isoformat") else value
+
+    def to_iso(value):
+        if not hasattr(value, "isoformat"):
+            return value
+        # Naive datetimes stored in the DB are UTC; append +00:00 so the
+        # browser interprets them correctly regardless of local timezone.
+        if value.tzinfo is None:
+            return value.isoformat() + "+00:00"
+        return value.isoformat()
 
     return [{
         "id": row.get("id"),
@@ -714,7 +722,9 @@ async def refresh_at(
                 "token": {
                     "id": updated_token.id,
                     "email": updated_token.email,
-                    "at_expires": updated_token.at_expires.isoformat() if updated_token.at_expires else None
+                    "at_expires": (updated_token.at_expires.isoformat() + (
+                        "" if updated_token.at_expires.tzinfo else "+00:00"
+                    )) if updated_token.at_expires else None
                 }
             }
         else:

@@ -1,5 +1,8 @@
 """Database storage layer for Flow2API"""
-import aiosqlite
+# pg_compat provides an aiosqlite-compatible shim that routes to asyncpg
+# when DATABASE_URL is set, and falls back to real aiosqlite otherwise.
+from .pg_compat import compat as aiosqlite, USE_POSTGRES
+from .pg_compat import pg_table_exists, pg_column_exists
 import json
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -8,7 +11,7 @@ from .models import Token, TokenStats, Task, RequestLog, AdminConfig, ProxyConfi
 
 
 class Database:
-    """SQLite database manager"""
+    """Database manager — SQLite (default) or PostgreSQL (when DATABASE_URL set)."""
 
     def __init__(self, db_path: str = None):
         if db_path is None:
@@ -19,11 +22,15 @@ class Database:
         self.db_path = db_path
 
     def db_exists(self) -> bool:
-        """Check if database file exists"""
+        """Check if database file exists (always True for PostgreSQL)."""
+        if USE_POSTGRES:
+            return True
         return Path(self.db_path).exists()
 
     async def _table_exists(self, db, table_name: str) -> bool:
-        """Check if a table exists in the database"""
+        """Check if a table exists in the database."""
+        if USE_POSTGRES:
+            return await pg_table_exists(db, table_name)
         cursor = await db.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
             (table_name,)
@@ -32,7 +39,9 @@ class Database:
         return result is not None
 
     async def _column_exists(self, db, table_name: str, column_name: str) -> bool:
-        """Check if a column exists in a table"""
+        """Check if a column exists in a table."""
+        if USE_POSTGRES:
+            return await pg_column_exists(db, table_name, column_name)
         try:
             cursor = await db.execute(f"PRAGMA table_info({table_name})")
             columns = await cursor.fetchall()
@@ -204,7 +213,7 @@ class Database:
         if count[0] == 0:
             await db.execute("""
                 INSERT INTO plugin_config (id, connection_token, auto_enable_on_update)
-                VALUES (1, '', 1)
+                VALUES (1, '', TRUE)
             """)
 
     async def check_and_migrate_db(self, config_dict: dict = None):
@@ -627,7 +636,9 @@ class Database:
             await db.commit()
 
     async def _migrate_request_logs(self, db):
-        """Migrate request_logs table from old schema to new schema"""
+        """Migrate request_logs table from old schema to new schema (SQLite only)."""
+        if USE_POSTGRES:
+            return  # fresh PostgreSQL databases never have the legacy schema
         try:
             has_model = await self._column_exists(db, "request_logs", "model")
             has_operation = await self._column_exists(db, "request_logs", "operation")
